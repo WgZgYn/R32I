@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 register_aliases = { path = "register_aliases" }
+proc_macro = { path = "proc_macro" }

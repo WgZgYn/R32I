@@ -1,50 +1,74 @@
 #![allow(dead_code)]
 mod alu;
 mod arch;
+mod const_emulator;
 mod instruct_info;
 mod instruction_type;
 mod mask;
 mod memory;
 mod opcode;
 mod register;
+mod test_code;
 mod traits;
 
 use crate::alu::ALU;
-use crate::arch::{Address, Byte, PC_DEFAULT_ADDRESS, PC_STEP};
+use crate::arch::{Address, Byte, PC_DEFAULT_ADDRESS, PC_STEP, STACK_DEFAULT_ADDRESS};
 use crate::instruction_type::*;
 use crate::memory::Memory;
 use crate::register::Registers;
-use std::arch::asm;
-// use crate::traits::{ADD, GetCode, SUB};
-use opcode::*;
+use proc_macro::riscv_asm;
 
 struct EmulatorContext {
     registers: Registers,
     memory: Memory,
     program_counter: Address,
+    max_address: Address,
+    data_offset: Address,
+    stack_offset: Address,
     stop: bool,
 }
 
 impl Default for EmulatorContext {
     fn default() -> Self {
+        let mut regs = Registers::default();
+        *regs.sp() = STACK_DEFAULT_ADDRESS;
         Self {
-            registers: Registers::default(),
+            registers: regs,
             memory: Memory::default(),
             program_counter: PC_DEFAULT_ADDRESS,
+            max_address: 0,
+            data_offset: 0,
+            stack_offset: STACK_DEFAULT_ADDRESS,
             stop: false,
         }
     }
 }
 
 impl EmulatorContext {
-    pub fn set_code_segment(&mut self, memory: &[u32]) -> &mut Self {
-        for (index, value) in memory.iter().enumerate() {
-            self.memory.write(&((index * 4) as Address), *value);
-        }
+    // set the pc with it, it will consider the last code segment as main
+    pub fn set_code_segment(&mut self, data: &[u32]) -> &mut Self {
+        self.program_counter = self.max_address;
+        self.max_address += (data.len() as Address) << 2;
+        self.memory.append(data);
+        self
+    }
+
+    // set the data offset
+    pub fn set_data_segment(&mut self, data: &[u32]) -> &mut Self {
+        self.data_offset = self.max_address;
+        self.max_address += (data.len() as Address) << 2;
+        self.memory.append(data);
+        self
+    }
+
+    pub fn set_stack_offset(&mut self, offset: Address) -> &mut Self {
+        self.stack_offset = offset;
+        *self.registers.sp() = offset;
         self
     }
 
     fn execute(&mut self, instruction: &Instruction) {
+        use opcode::*;
         match instruction.opcode() as Byte {
             I_TYPE => self.memory.load(&mut self.registers, instruction.as_i()),
             RI_TYPE => ALU::with(&mut self.registers).immediate(instruction.as_i()),
@@ -53,14 +77,13 @@ impl EmulatorContext {
             J_TYPE => {
                 let j = instruction.as_j();
                 *self.registers.get_mut(j.rd()) = self.program_counter;
-                self.program_counter = self.program_counter.overflowing_add(j.imm()).0;
+                self.program_counter = ((self.program_counter - PC_STEP) as i32 + j.imm()) as u32;
             }
             JALR => {
                 let i = instruction.as_i();
                 *self.registers.get_mut(i.rd()) = self.program_counter;
-                self.program_counter = (self.program_counter as i32
-                    + ((self.registers.get(i.rs1())) & !1) as i32
-                    + i.imm()) as Address;
+                self.program_counter =
+                    (((self.registers.get(i.rs1())) & !1) as i32 + i.imm()) as Address;
             }
             B_TYPE => {
                 ALU::with(&mut self.registers).branch(&mut self.program_counter, instruction.as_b())
@@ -81,174 +104,141 @@ impl EmulatorContext {
 
     pub fn run(&mut self) {
         while !self.stop {
-            let i: Instruction = Instruction::from(self.memory.access(&self.program_counter));
+            let i: Instruction = Instruction::from(self.memory.read_word(&self.program_counter));
             self.program_counter += PC_STEP;
+            // println!("{}", i);
             self.execute(&i);
         }
     }
 }
 
 fn main() {
-    use instruct_info::btype::*;
-    use instruct_info::itype::*;
-    use instruct_info::rtype::*;
-    use instruct_info::*;
-    use register::alias::*;
-
     let mut context = EmulatorContext::default();
-    const LOOP_ADD: &[u32] = &[
-        // init:
-        li(t0, 1),   // 初始化增量
-        li(t1, 101), // 设置结束条件
-        li(t2, 0),   // 初始化sum
-        // start:
-        add(t2, t2, t0),
-        addi(t0, t0, 1),
-        bne(t1, t0, -4),
-        // stop
-        mv(a0, t2),
-        nop(),
-    ];
+    const QUICK_SORT: &[u32; 85] = riscv_asm! {
+    main:
+            li a0, 0;
+            li a1, 0;
+            li a2, 9;
+            call quick_sort;
+            stop;
 
-    // context.set_code_segment(LOOP_ADD).run();
-    // for v in fibonacci::<40>() {
-    //     println!("{:032b}", v as u32);
-    // }
-    // let mut f = std::fs::File::create("./fibonacci.rbin").expect("should create fibonacci.rbin");
-    // f.write(fibonacci::<40>().into_iter().map(|v| v.to_le_bytes()).flatten().collect::<Vec<u8>>().as_slice()).expect("should write fibonacci.rbin");
-
-    // let binary = std::fs::read("./fibonacci.rbin").expect("File not found");
-    // let instructions: Vec<u32> = binary.chunks(4).map(|c| {
-    //     let mut bs = [0; 4];
-    //     bs.copy_from_slice(&c[0..4]);
-    //     u32::from_le_bytes(bs)
-    // }).collect();
-
-    let start = std::time::Instant::now();
-    let res = fibonacci_native(1000);
-    println!("{res}, {}", start.elapsed().as_nanos());
-    // TODO: FIX imm sign extend
-
-    let start = std::time::Instant::now();
+    quick_sort:
+            addi    sp,sp,-16;
+            slli    a5,a1,2;
+            sw      s1,4(sp);
+            sw      s2,0(sp);
+            add     a5,a0,a5;
+            sw      ra,12(sp);
+            sw      s0,8(sp);
+            lw      a7,0(a5);
+            mv      s1,a0;
+            mv      s2,a2;
+            bge     a1,a2,L16;
+            slli    a5,a2,2;
+            add     a5,a0,a5;
+            lw      a4,0(a5);
+            mv      a3,a2;
+            mv      a2,a1;
+    L3:
+            addi    a6,a3,-1;
+            slli    a6,a6,2;
+            add     a6,s1,a6;
+            j       L11;
+    L5:
+            addi    a3,a3,-1;
+            lw      a4,4(a5);
+            beq     a3,a2,L4;
+            mv      a6,a5;
+    L11:
+            addi    a5,a6,-4;
+            ble     a7,a4,L5;
+            slli    a5,a2,2;
+            add     a5,s1,a5;
+            slli    a6,a3,2;
+            sw      a4,0(a5);
+            add     a6,s1,a6;
+            ble     a3,a2,L6;
+            mv      s0,a2;
+            j       L7;
+    L9:
+            addi    a5,a5,4;
+            beq     a3,s0,L21;
+    L7:
+            lw      a4,0(a5);
+            mv      a2,s0;
+            addi    s0,s0,1;
+            ble     a4,a7,L9;
+            sw      a4,0(a6);
+            blt     a2,a3,L3;
+            mv      s0,a2;
+            addi    a2,a2,-1;
+            j       L15;
+    L21:
+            slli    a5,s0,2;
+            add     a5,s1,a5;
+            lw      a4,0(a5);
+    L8:
+            sw      a4,0(a6);
+    L15:
+            sw      a7,0(a5);
+            bge     a1,a2,L2;
+            mv      a0,s1;
+            call    quick_sort;
+    L2:
+            addi    a1,s0,1;
+            blt     a1,s2,L22;
+            lw      ra,12(sp);
+            lw      s0,8(sp);
+            lw      s1,4(sp);
+            lw      s2,0(sp);
+            li      a0,0;
+            addi    sp,sp,16;
+            ret;
+    L22:
+            mv      a2,s2;
+            mv      a0,s1;
+            call    quick_sort;
+            lw      ra,12(sp);
+            lw      s0,8(sp);
+            lw      s1,4(sp);
+            lw      s2,0(sp);
+            li      a0,0;
+            addi    sp,sp,16;
+            jr      ra;
+    L16:
+            mv      s0,a1;
+            j       L2;
+    L4:
+            slli    a5,a2,2;
+            add     a5,s1,a5;
+            sw      a4,0(a5);
+    L6:
+            mv      s0,a2;
+            addi    a2,a2,-1;
+            j       L8;
+        };
+    let nums = [18, 46, 62, 59, 78, 71, 7, 99, 18, 28];
     context
-        .set_code_segment(&fibonacci_greater_2048::<1000>())
+        .set_data_segment(&nums)
+        .set_code_segment(QUICK_SORT)
         .run();
 
     println!(
-        "{}, {}",
-        context.registers.get(a0),
-        start.elapsed().as_nanos()
+        "the sorted nums: {:?}",
+        &context.memory.test_get_memory()[..nums.len()]
     );
 
-    let start = std::time::Instant::now();
-    unsafe {
-        let mut a: u64 = 0;
-        asm!(
-        "mov {0}, 1000",
-        "mov {1}, 0",
-        "mov {2}, 1",
-        "2:",
-        "cmp {0}, 0",
-        "je 3f",
-        "mov {3}, {1}",
-        "add {3}, {2}",
-        "mov {1}, {2}",
-        "mov {2}, {3}",
-        "dec {0}",
-        "jmp 2b",
-        "3:",
-        out(reg) _,
-        inout(reg) a,
-        out(reg) _,
-        out(reg) _,
-        );
-        println!("asm: {}, {}", a, start.elapsed().as_nanos());
-    }
-}
+    // #[allow(long_running_const_eval)]
+    // const RES: u32 = ConstantEmulator::run_loop(QUICK_SORT);
+    // println!("const RES sum: {}", RES);
 
-const fn fibonacci_compile<const N: usize>() -> u32 {
-    let mut cnt = N;
-    let mut a = 0;
-    let mut b = 1;
-    while cnt > 0 {
-        let c = a + b;
-        a = b;
-        b = c;
-        cnt -= 1;
-    }
-    a
-}
+    let data =  riscv_asm!(
+    x:  .byte 0x12;
+    y:  .byte 0x13;
+    z:  .byte 0x14;
+    w:  .byte 0x15;
+        .word 0x12345678;
+    );
 
-fn fibonacci_native(n: usize) -> u32 {
-    let mut cnt = n;
-    let mut a = 0;
-    let mut b = 1;
-    while cnt > 0 {
-        let c = a + b;
-        a = b;
-        b = c;
-        cnt -= 1;
-    }
-    a
-}
-
-const fn fibonacci_less_2048<const N: usize>() -> [u32; 11] {
-    use instruct_info::btype::*;
-    use instruct_info::itype::*;
-    use instruct_info::rtype::*;
-    use instruct_info::*;
-    use register::alias::*;
-
-    const CNT: u8 = t0;
-    const A: u8 = t1;
-    const B: u8 = t2;
-    const C: u8 = t3;
-
-    [
-        li(CNT, N as i32), // int cnt = N; ,
-        li(A, 0),          // int a = 0;
-        li(B, 1),          // int b = 1;
-        // judge
-        beq(CNT, 0, 12), // if (cnt == 0) { goto End; }
-        // iter
-        add(C, A, B),       // c = a + b;
-        mv(A, B),           // a = b;
-        mv(B, C),           // b = c;
-        addi(CNT, CNT, -1), // cnt = cnt - 1;
-        j(-12),             // goto Judge
-        // end
-        mv(a(0), A), // return a
-        nop(),
-    ]
-}
-
-const fn fibonacci_greater_2048<const N: usize>() -> [u32; 12] {
-    use instruct_info::btype::*;
-    use instruct_info::itype::*;
-    use instruct_info::rtype::*;
-    use instruct_info::*;
-    use register::alias::*;
-
-    const CNT: u8 = t0;
-    const A: u8 = t1;
-    const B: u8 = t2;
-    const C: u8 = t3;
-
-    [
-        addi(CNT, CNT, (N & 0xFFF) as i16), // int cnt = N; ,
-        lui(CNT, (N >> 12) as i32),         // int cnt = N; ,
-        li(A, 0),                           // int a = 0;
-        li(B, 1),                           // int b = 1;
-        // judge
-        beq(CNT, 0, 12), // if (cnt == 0) { goto End; }
-        // iter
-        add(C, A, B),       // c = a + b;
-        mv(A, B),           // a = b;
-        mv(B, C),           // b = c;
-        addi(CNT, CNT, -1), // cnt = cnt - 1;
-        j(-12),             // goto Judge
-        // end
-        mv(a(0), A), // return a
-        nop(),
-    ]
+    println!("{:#x?}", data);
 }
