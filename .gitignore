@@ -1,4 +1,4 @@
 /target
-/proc_macro/target/
+/r32i-asm/target/
 /register_aliases/target/
 /.idea
