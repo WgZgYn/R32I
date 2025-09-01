@@ -1,3 +1,4 @@
+#![feature(io_const_error)]
 #![allow(dead_code)]
 mod alu;
 mod arch;
@@ -167,8 +168,17 @@ fn main() {
     });
 
 
-    #[allow(long_running_const_eval)]
-    const A: u32 = ConstantEmulator::run_loop(QUICK_SORT);
     println!("const F: {}, time: {:?}", F, start.elapsed());
+    #[allow(long_running_const_eval)]
+    const A: u32 = ConstantEmulator::run_loop(riscv_asm!{
+        main:
+        li a0, 2;
+        li a1, 1000;
+        addi sp, sp, -16;
+        sw a1, 4(sp);
+        lw a0, 4(sp);
+        stop
+    });
+    println!("{}", A);
     println!("const RES sum: {}", RES);
 }
