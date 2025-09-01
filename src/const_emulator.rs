@@ -71,17 +71,9 @@ impl ConstantEmulator {
         let mut pc = 0;
         let mut stop = false;
         let mut data = [0; N];
+        data.copy_from_slice(code);
         let mut stack = [0; 512];
         *regs.sp() = (data.len() + stack.len()) as u32;
-        {
-            let mut i = 0;
-            while i < code.len() {
-                data[i] = code[i];
-                i += 1;
-            }
-        }
-
-        *regs.a(1) = 1;
         while !stop {
             Self::run(&mut regs, &mut data, &mut stack, &mut pc, &mut stop);
             pc += 4;

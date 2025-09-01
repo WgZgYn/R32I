@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::Byte;
+use crate::arch::Byte;
 
 // I 类型指令
 pub const JAL: Byte = 0x6F; // Jump and Link
@@ -19,7 +19,7 @@ pub const B_TYPE: Byte = 0x63;
 pub const J_TYPE: Byte = 0x6F;
 
 mod b {
-    use crate::Byte;
+    use crate::arch::Byte;
 
     pub const BEQ: Byte = 0x63; // Branch Equal
     pub const BNE: Byte = 0x63; // Branch Not Equal
@@ -30,7 +30,7 @@ mod b {
 }
 
 mod l {
-    use crate::Byte;
+    use crate::arch::Byte;
 
     pub const LB: Byte = 0x03; // Load Byte
     pub const LH: Byte = 0x03; // Load Halfword
@@ -40,7 +40,7 @@ mod l {
 }
 
 mod r {
-    use crate::Byte;
+    use crate::arch::Byte;
 
     pub const ADD: Byte = 0x33; // Add
     pub const SUB: Byte = 0x33; // Subtract
@@ -53,7 +53,7 @@ mod r {
 }
 
 mod s {
-    use crate::Byte;
+    use crate::arch::Byte;
 
     pub const SB: Byte = 0x23; // Store Byte
     pub const SH: Byte = 0x23; // Store Halfword

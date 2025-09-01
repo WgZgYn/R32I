@@ -1,7 +1,8 @@
 #![allow(dead_code)]
 
+use crate::arch::Address;
 use crate::instruction_type::{BInstruction, IInstruction, ISInstruction, RInstruction};
-use crate::{Address, Registers};
+use crate::register::{Registers};
 
 pub struct ALU<'a>(&'a mut Registers);
 

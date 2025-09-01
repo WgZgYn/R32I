@@ -2,6 +2,8 @@
 mod alu;
 mod arch;
 mod const_emulator;
+mod emulator;
+mod exception;
 mod instruct_info;
 mod instruction_type;
 mod mask;
@@ -11,106 +13,9 @@ mod register;
 mod test_code;
 mod traits;
 
-use crate::alu::ALU;
-use crate::arch::{Address, Byte, PC_DEFAULT_ADDRESS, PC_STEP, STACK_DEFAULT_ADDRESS};
-use crate::instruction_type::*;
-use crate::memory::Memory;
-use crate::register::Registers;
-use proc_macro::riscv_asm;
-
-struct EmulatorContext {
-    registers: Registers,
-    memory: Memory,
-    program_counter: Address,
-    max_address: Address,
-    data_offset: Address,
-    stack_offset: Address,
-    stop: bool,
-}
-
-impl Default for EmulatorContext {
-    fn default() -> Self {
-        let mut regs = Registers::default();
-        *regs.sp() = STACK_DEFAULT_ADDRESS;
-        Self {
-            registers: regs,
-            memory: Memory::default(),
-            program_counter: PC_DEFAULT_ADDRESS,
-            max_address: 0,
-            data_offset: 0,
-            stack_offset: STACK_DEFAULT_ADDRESS,
-            stop: false,
-        }
-    }
-}
-
-impl EmulatorContext {
-    // set the pc with it, it will consider the last code segment as main
-    pub fn set_code_segment(&mut self, data: &[u32]) -> &mut Self {
-        self.program_counter = self.max_address;
-        self.max_address += (data.len() as Address) << 2;
-        self.memory.append(data);
-        self
-    }
-
-    // set the data offset
-    pub fn set_data_segment(&mut self, data: &[u32]) -> &mut Self {
-        self.data_offset = self.max_address;
-        self.max_address += (data.len() as Address) << 2;
-        self.memory.append(data);
-        self
-    }
-
-    pub fn set_stack_offset(&mut self, offset: Address) -> &mut Self {
-        self.stack_offset = offset;
-        *self.registers.sp() = offset;
-        self
-    }
-
-    fn execute(&mut self, instruction: &Instruction) {
-        use opcode::*;
-        match instruction.opcode() as Byte {
-            I_TYPE => self.memory.load(&mut self.registers, instruction.as_i()),
-            RI_TYPE => ALU::with(&mut self.registers).immediate(instruction.as_i()),
-            R_TYPE => ALU::with(&mut self.registers).execute(instruction.as_r()),
-            S_TYPE => self.memory.store(&mut self.registers, instruction.as_s()),
-            J_TYPE => {
-                let j = instruction.as_j();
-                *self.registers.get_mut(j.rd()) = self.program_counter;
-                self.program_counter = ((self.program_counter - PC_STEP) as i32 + j.imm()) as u32;
-            }
-            JALR => {
-                let i = instruction.as_i();
-                *self.registers.get_mut(i.rd()) = self.program_counter;
-                self.program_counter =
-                    (((self.registers.get(i.rs1())) & !1) as i32 + i.imm()) as Address;
-            }
-            B_TYPE => {
-                ALU::with(&mut self.registers).branch(&mut self.program_counter, instruction.as_b())
-            }
-            LUI => {
-                let u = instruction.as_u();
-                *self.registers.get_mut(u.rd()) =
-                    (self.registers.get(u.rd()) & 0xFFF) + u.high_imm();
-            }
-            AUIPC => {
-                let u = instruction.as_u();
-                *self.registers.get_mut(u.rd()) = self.program_counter + u.high_imm();
-            }
-            NOP => self.stop = true,
-            _ => panic!("SegmentFault"),
-        }
-    }
-
-    pub fn run(&mut self) {
-        while !self.stop {
-            let i: Instruction = Instruction::from(self.memory.read_word(&self.program_counter));
-            self.program_counter += PC_STEP;
-            // println!("{}", i);
-            self.execute(&i);
-        }
-    }
-}
+use crate::const_emulator::ConstantEmulator;
+use crate::emulator::EmulatorContext;
+use r32i_asm::riscv_asm;
 
 fn main() {
     let mut context = EmulatorContext::default();
@@ -218,27 +123,52 @@ fn main() {
             j       L8;
         };
     let nums = [18, 46, 62, 59, 78, 71, 7, 99, 18, 28];
-    context
-        .set_data_segment(&nums)
-        .set_code_segment(QUICK_SORT)
-        .run();
+    context.set_data_segment(&nums).set_code_segment(QUICK_SORT);
+    context.run_with_thread();
+    #[allow(long_running_const_eval)]
+    const RES: u32 = ConstantEmulator::run_loop(riscv_asm! {
+        main:
+        li a0, 0;
+        li a1, 1000;
+        slli a1, a1, 4;
+        L1:
+        beq a1, zero, end;
+        add a0, a0, a1;
+        addi a1, a1, -1;
+        j L1;
+        end:
+    });
 
-    println!(
-        "the sorted nums: {:?}",
-        &context.memory.test_get_memory()[..nums.len()]
-    );
+    let start = std::time::Instant::now();
+    const F: u32 = ConstantEmulator::run_loop(riscv_asm! {
+        Main:
+        li a0, 12;
+        mv s2, a0;
+        li a0, 1;
+        Loop:
+        beq s2, zero, End;
+        mv a1, s2;
+        call mul;
+        addi s2, s2, -1;
+        j Loop;
+        End:
+        stop;
+        mul:
+        mv t0, a0;
+        mv t1, a1;
+        li a0, 0;
+        mul_loop:
+        beq t1, zero, mul_end;
+        add a0, a0, t0;
+        addi t1, t1, -1;
+        j mul_loop;
+        mul_end:
+        ret;
+    });
 
-    // #[allow(long_running_const_eval)]
-    // const RES: u32 = ConstantEmulator::run_loop(QUICK_SORT);
-    // println!("const RES sum: {}", RES);
 
-    let data =  riscv_asm!(
-    x:  .byte 0x12;
-    y:  .byte 0x13;
-    z:  .byte 0x14;
-    w:  .byte 0x15;
-        .word 0x12345678;
-    );
-
-    println!("{:#x?}", data);
+    #[allow(long_running_const_eval)]
+    const A: u32 = ConstantEmulator::run_loop(QUICK_SORT);
+    println!("const F: {}, time: {:?}", F, start.elapsed());
+    println!("const RES sum: {}", RES);
 }

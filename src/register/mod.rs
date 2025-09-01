@@ -2,6 +2,8 @@ use crate::arch::{R32I, RISC_V_32_REGISTERS};
 pub const ZERO: Register = 0;
 pub type Register = R32I;
 
+// TODO: Add CsrRegisters
+
 #[derive(Default, Debug)]
 pub struct Registers {
     registers: [Register; RISC_V_32_REGISTERS],

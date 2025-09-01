@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod test_code {
     use crate::EmulatorContext;
-    use crate::register::alias::{a0, a1, t0, t1, t2};
-    use proc_macro::riscv_asm;
+    use r32i_asm::riscv_asm;
+    use crate::register::alias::*;
 
     #[test]
     fn test_j() {

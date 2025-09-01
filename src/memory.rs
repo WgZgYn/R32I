@@ -1,6 +1,7 @@
+use crate::arch::{Address, PC_DEFAULT_ADDRESS};
 use crate::instruction_type::{IInstruction, SInstruction};
 use crate::mask::{BYTE_MASK, HALF_WORD_MASK, WORD_MASK};
-use crate::{Address, PC_DEFAULT_ADDRESS, Registers};
+use crate::register::Registers;
 
 const CODE_DEFAULT_OFFSET: usize = PC_DEFAULT_ADDRESS as usize;
 const STACK_BOTTOM_DEFAULT_OFFSET: Address = 0xF0000;
@@ -18,6 +19,12 @@ pub trait RandomAccess {
 struct MemorySegments {
     data: Vec<u32>,
 }
+
+trait Memory {
+    fn read(&self, address: Address) -> u32;
+    fn write(&mut self, address: Address, value: u32);
+}
+
 impl RandomAccess for MemorySegments {
     type Output = u32;
     type KeyType = Address;
@@ -51,11 +58,12 @@ impl RandomAccess for MemorySegments {
 }
 
 #[derive(Default)]
-pub struct Memory {
+pub struct MemoryWrapper {
     segments: MemorySegments,
 }
 
-impl Memory {
+
+impl MemoryWrapper {
     pub fn test_get_memory(&mut self) -> &mut Vec<u32> {
         &mut self.segments.data
     }
