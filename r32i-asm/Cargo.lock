@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "proc_macro"
+name = "r32i-asm"
 version = "0.1.0"

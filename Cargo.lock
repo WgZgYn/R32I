@@ -6,12 +6,12 @@ version = 4
 name = "emulator"
 version = "0.1.0"
 dependencies = [
- "proc_macro",
+ "r32i-asm",
  "register_aliases",
 ]
 
 [[package]]
-name = "proc_macro"
+name = "r32i-asm"
 version = "0.1.0"
 
 [[package]]
